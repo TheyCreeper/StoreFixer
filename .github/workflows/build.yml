@@ -26,13 +26,13 @@ jobs:
       uses: microsoft/setup-msbuild@v1
 
     - name: Restore Dependencies
-      run: msbuild StoreFixer.slnx /t:restore /p:Platform="x64"
+      run: msbuild StoreFixer/StoreFixer.slnx /t:restore /p:Platform="x64"
 
     - name: Build Solution
-      run: msbuild StoreFixer.sln /p:Configuration=Release /p:Platform="x64"
+      run: msbuild StoreFixer/StoreFixer.sln /p:Configuration=Release /p:Platform="x64"
 
     - name: Publish Application
-      run: msbuild StoreFixer.sln /t:Publish /p:Configuration=Release /p:Platform="x64" /p:PublishDir="D:\a\StoreFixer\StoreFixer\Deploy\src\"
+      run: msbuild StoreFixer/StoreFixer.sln /t:Publish /p:Configuration=Release /p:Platform="x64" /p:PublishDir="D:\a\StoreFixer\StoreFixer\Deploy\src\"
 
     - name: Create ZIP of MSI
       run: powershell Compress-Archive -Path "D:\a\atlas-toolbox\atlas-toolbox\Installer\Output\*" -DestinationPath "D:\a\StoreFixer\StoreFixer\StoreFixer.zip"
