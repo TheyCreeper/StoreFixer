@@ -47,7 +47,7 @@ namespace StoreFixer
                 {
                     string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                     logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
-
+                    LogColored(logFilePath);
                     string systemDrive = Environment.GetEnvironmentVariable("SYSTEMDRIVE") ?? "C:";
                     Clear();
 
@@ -60,10 +60,8 @@ namespace StoreFixer
                         catch (Exception ex)
                         {
                             Console.WriteLine();
-                            LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
                             LogColored($"CRITICAL ERROR: {ex.Message}", MessageType.Critical);
                             LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                            LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
                             Console.WriteLine();
                             await RestoreOnCrash();
                         }
@@ -71,25 +69,20 @@ namespace StoreFixer
                     else
                     {
                         Console.WriteLine();
-                        LogColored("════════════════════════════════════════════════════════════", MessageType.Error);
                         LogColored("ERROR: Not running as Trusted Installer", MessageType.Error);
                         LogColored("Please close this application and run it as Trusted Installer.", MessageType.Error);
-                        LogColored("════════════════════════════════════════════════════════════", MessageType.Error);
                         Console.WriteLine();
                     }
 
                     Console.WriteLine();
-                    LogColored("═══════════════════════════════════════════════════════════════", MessageType.Header);
                     LogColored("StoreFixer Execution Completed", MessageType.Header);
-                    LogColored("═══════════════════════════════════════════════════════════════", MessageType.Header);
+                    if (isSilent) Environment.Exit(0);
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine();
-                    LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
                     LogColored($"FATAL ERROR in Main: {ex.Message}", MessageType.Critical);
                     LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                    LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
                     Console.WriteLine();
 
                     try
@@ -100,6 +93,7 @@ namespace StoreFixer
                 }
                 finally
                 {
+                    if (isSilent) Environment.Exit(0);
                     if (!isSilent)
                     {
                         Console.WriteLine();
@@ -1058,8 +1052,19 @@ namespace StoreFixer
 
         private static void Clear()
         {
-            Console.Clear();
-            Console.WriteLine("Project provided under CC0-Universal: https://github.com/TheyCreeper/StoreFixer\n\n");
+            try
+            {
+                Console.Clear();
+            }
+            catch
+            {
+                // Silently fail if console is hidden or unavailable
+            }
+
+            if (!isSilent)
+            {
+                Console.WriteLine("Project provided under CC0-Universal: https://github.com/TheyCreeper/StoreFixer\n\n");
+            }
         }
     }
 }
