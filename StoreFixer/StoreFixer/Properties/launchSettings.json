@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "StoreFixer": {
+      "commandName": "Project",
+      "commandLineArgs": "silent"
+    }
+  }
+}

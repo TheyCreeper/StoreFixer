@@ -13,8 +13,11 @@ namespace StoreFixer
         private static string logFilePath = string.Empty;
         private static Dictionary<string, ServiceStartMode> servicesBackup = new();
         private static HashSet<ServiceController> allServices = new();
-        private static bool executionStarted = false;
+        private static bool executionStarted = false, isSilent = false;
+        [DllImport("user32.dll")]
+        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        const int SW_HIDE = 0;
         // Console color scheme
         private enum MessageType
         {
@@ -28,33 +31,22 @@ namespace StoreFixer
 
         static async Task Main(string[] args)
         {
+            if (args[0] == "silent")
+            {
+                isSilent = true;
+                IntPtr hWnd = GetConsoleWindow();
+                ShowWindow(hWnd, SW_HIDE);
+            }
             try
             {
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                 logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
 
                 string systemDrive = Environment.GetEnvironmentVariable("SYSTEMDRIVE") ?? "C:";
-
-                // Print startup banner
-                Console.WriteLine();
-                LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                LogColored("║         StoreFixer - Service Restoration Utility            ║", MessageType.Header);
-                LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
-                Console.WriteLine();
-
-                LogColored($"System Drive:        {systemDrive}", MessageType.Info);
-                LogColored($"Log File:            {logFilePath}", MessageType.Info);
-                LogColored($"Current User:        {WindowsIdentity.GetCurrent().Name}", MessageType.Info);
-                LogColored($"Timestamp:           {DateTime.Now:yyyy-MM-dd HH:mm:ss}", MessageType.Info);
-                Console.WriteLine();
+                Clear();
 
                 if (IsRunAsTi())
                 {
-                    LogColored("Status: Running as Trusted Installer", MessageType.Success);
-                    Console.WriteLine();
-                    LogColored("Starting execution...", MessageType.Success);
-                    Console.WriteLine();
-
                     try
                     {
                         await Execution();
@@ -102,14 +94,18 @@ namespace StoreFixer
             }
             finally
             {
-                Console.WriteLine();
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write("Press any key to exit...");
-                Console.ResetColor();
-                try { Console.ReadKey(); } catch { }
+                if (!isSilent)
+                {
+                    Console.WriteLine();
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.Write("Press any key to exit...");
+                    Console.ResetColor();
+                    try { Console.ReadKey(); } catch { }
+                }
             }
         }
-
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GetConsoleWindow();
         /// <summary>
         /// Emergency restoration if execution crashes
         /// </summary>
@@ -170,9 +166,12 @@ namespace StoreFixer
             };
 
             // Write to console with color
-            Console.ForegroundColor = color;
-            Console.WriteLine(timestampedMessage);
-            Console.ResetColor();
+            if (!isSilent)
+            {
+                Console.ForegroundColor = color;
+                Console.WriteLine(timestampedMessage);
+                Console.ResetColor();
+            }
 
             // Write to file
             try
@@ -229,72 +228,52 @@ namespace StoreFixer
                 // ====================================================================
                 // PHASE 1: SERVICE BACKUP
                 // ====================================================================
-                Console.WriteLine();
-                LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                LogColored("║ PHASE 1: Creating Emergency Service Backup                 ║", MessageType.Header);
-                LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
-                Console.WriteLine();
+                LogColored("Saving service backup...");
 
                 await CreateServiceBackup();
-                Console.WriteLine();
 
                 // ====================================================================
                 // PHASE 2: SERVICE RETRIEVAL & PREPARATION
                 // ====================================================================
-                LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                LogColored("║ PHASE 2: Retrieving Services & Configuration              ║", MessageType.Header);
-                LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
+                LogColored("Getting services...");
                 Console.WriteLine();
 
                 string targetFile = $"{Environment.GetEnvironmentVariable("SYSTEMDRIVE")}\\ProgramData\\Microsoft\\Windows\\AppRepository\\StateRepository-Deployment.srd";
-                LogColored($"Target File: {targetFile}", MessageType.Info);
-                Console.WriteLine();
 
                 try
                 {
-                    LogColored("Retrieving services...", MessageType.Info);
                     HashSet<ServiceController> rootServices = GetServices(["ClipSVC", "AppXSvc", "StateRepository"]);
-                    LogColored($"  → Root services found: {rootServices.Count}", MessageType.Success);
-                    Console.WriteLine();
-
                     HashSet<ServiceController> dependentServices = GetDependentServices(rootServices);
-                    LogColored($"  → Dependent services found: {dependentServices.Count}", MessageType.Success);
-                    Console.WriteLine();
 
                     Dictionary<string, ServiceStartMode> servicesStartMode = new();
-                    LogColored("Backing up root services...", MessageType.Info);
+                    LogColored("Backing up root services...", MessageType.Header);
                     foreach (ServiceController serviceController in rootServices)
                     {
                         try
                         {
                             servicesStartMode.TryAdd(serviceController.ServiceName, serviceController.StartType);
-                            LogColored($"    • {serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
+                            LogColored($"{serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
                         }
                         catch (Exception ex)
                         {
-                            LogColored($"    ✗ {serviceController.ServiceName}: {ex.Message}", MessageType.Error);
+                            LogColored($"{serviceController.ServiceName}: {ex.Message}", MessageType.Error);
                         }
                     }
                     Console.WriteLine();
 
-                    LogColored("Backing up dependent services...", MessageType.Info);
+                    LogColored("Backing up dependent services...", MessageType.Header);
                     foreach (ServiceController serviceController in dependentServices)
                     {
                         try
                         {
                             servicesStartMode.TryAdd(serviceController.ServiceName, serviceController.StartType);
-                            LogColored($"    • {serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
+                            LogColored($"{serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
                         }
                         catch (Exception ex)
                         {
-                            LogColored($"    ✗ {serviceController.ServiceName}: {ex.Message}", MessageType.Error);
+                            LogColored($"{serviceController.ServiceName}: {ex.Message}", MessageType.Error);
                         }
                     }
-                    Console.WriteLine();
-
-                    LogColored($"Total services backed up: {servicesStartMode.Count}", MessageType.Success);
-                    LogColored("Saving backup to registry...", MessageType.Info);
-                    Console.WriteLine();
 
                     foreach (KeyValuePair<string, ServiceStartMode> kvp in servicesStartMode)
                     {
@@ -312,17 +291,12 @@ namespace StoreFixer
                     // ================================================================
                     // PHASE 3: DISABLING SERVICES
                     // ================================================================
-                    LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                    LogColored("║ PHASE 3: Disabling Services                                ║", MessageType.Header);
-                    LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
-                    Console.WriteLine();
-
-                    LogColored("Disabling dependent services...", MessageType.Info);
+                    LogColored("Disabling services: ", MessageType.Header);
+                    LogColored("Disabling dependent services...", MessageType.Header);
                     await DisableServicesAsync(dependentServices);
                     await Task.Delay(1000);
-                    Console.WriteLine();
 
-                    LogColored("Disabling root services...", MessageType.Info);
+                    LogColored("Disabling root services...", MessageType.Header);
                     await DisableServicesAsync(rootServices);
                     await Task.Delay(1000);
                     Console.WriteLine();
@@ -330,17 +304,12 @@ namespace StoreFixer
                     // ================================================================
                     // PHASE 4: STOPPING SERVICES
                     // ================================================================
-                    LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                    LogColored("║ PHASE 4: Stopping Services                                 ║", MessageType.Header);
-                    LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
-                    Console.WriteLine();
-
-                    LogColored("Stopping dependent services...", MessageType.Info);
+                    LogColored("Stopping Services", MessageType.Header);
+                    LogColored("Stopping dependent services...", MessageType.Header);
                     await StopServicesAsync(dependentServices);
                     await Task.Delay(1000);
-                    Console.WriteLine();
 
-                    LogColored("Stopping root services...", MessageType.Info);
+                    LogColored("Stopping root services...", MessageType.Header);
                     await StopServicesAsync(rootServices);
                     await Task.Delay(2000);
                     Console.WriteLine();
@@ -348,9 +317,7 @@ namespace StoreFixer
                     // ================================================================
                     // PHASE 5: FILE DELETION
                     // ================================================================
-                    LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                    LogColored("║ PHASE 5: Deleting Target File                              ║", MessageType.Header);
-                    LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
+                    LogColored("Deleting Target File", MessageType.Header);
                     Console.WriteLine();
 
                     await DeleteTargetFileAsync(targetFile, rootServices, dependentServices);
@@ -360,9 +327,7 @@ namespace StoreFixer
                     // ================================================================
                     // PHASE 6: SERVICE RESTORATION
                     // ================================================================
-                    LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                    LogColored("║ PHASE 6: Restoring Services to Original State              ║", MessageType.Header);
-                    LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
+                    LogColored("Restoring Services to Original State", MessageType.Header);
                     Console.WriteLine();
 
                     await RestoreServicesAsync(servicesStartMode);
@@ -372,19 +337,19 @@ namespace StoreFixer
                     // ================================================================
                     // PHASE 7: STARTING SERVICES
                     // ================================================================
-                    LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Header);
-                    LogColored("║ PHASE 7: Starting Services                                 ║", MessageType.Header);
-                    LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Header);
+                    LogColored("Starting services", MessageType.Header);
                     Console.WriteLine();
 
-                    LogColored("Starting dependent services...", MessageType.Info);
+                    LogColored("Starting dependent services...", MessageType.Header);
                     await StartServicesAsync(dependentServices);
                     await Task.Delay(1000);
                     Console.WriteLine();
 
-                    LogColored("Starting root services...", MessageType.Info);
+                    LogColored("Starting root services...", MessageType.Header);
                     await StartServicesAsync(rootServices);
                     await Task.Delay(1000);
+                    Console.WriteLine();
+                    Console.WriteLine();
                     Console.WriteLine();
 
                     // ================================================================
@@ -473,8 +438,6 @@ namespace StoreFixer
         {
             try
             {
-                LogColored($"Disabling {services.Count} services...", MessageType.Info);
-
                 // Disable all services
                 foreach (ServiceController service in services)
                 {
@@ -730,8 +693,6 @@ namespace StoreFixer
         {
             try
             {
-                LogColored($"Stopping {services.Count} services...", MessageType.Info);
-
                 // Stop all services
                 foreach (ServiceController service in services)
                 {
@@ -741,11 +702,9 @@ namespace StoreFixer
                         if (service.Status != ServiceControllerStatus.Stopped)
                         {
                             service.Stop();
-                            LogColored($"Stopping service: {service.ServiceName}", MessageType.Info);
                         }
                         else
                         {
-                            LogColored($"Service already stopped: {service.ServiceName}", MessageType.Success);
                         }
                     }
                     catch (Exception ex)
@@ -760,9 +719,6 @@ namespace StoreFixer
                     }
                     await Task.Delay(100);
                 }
-
-                Console.WriteLine();
-
                 // Verify all services are stopped
                 bool allStopped = false;
                 int maxRetries = 10;
@@ -838,9 +794,6 @@ namespace StoreFixer
 
                     retryCount++;
                 }
-
-                Console.WriteLine();
-                Console.WriteLine();
 
                 if (allStopped)
                 {
@@ -961,10 +914,6 @@ namespace StoreFixer
 
                     retryCount++;
                 }
-
-                Console.WriteLine();
-                Console.WriteLine();
-
                 if (allRunning)
                 {
                     LogColored($"All {services.Count} services have been successfully started.", MessageType.Success);
@@ -1098,6 +1047,12 @@ namespace StoreFixer
                 LogColored($"Failed to kill process {processId}: {ex.Message}", MessageType.Error);
                 return false;
             }
+        }
+
+        private static void Clear()
+        {
+            Console.Clear();
+            Console.WriteLine("Project provided under CC0-Universal: https://github.com/TheyCreeper/StoreFixer\n\n");
         }
     }
 }

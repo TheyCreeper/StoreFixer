@@ -26,7 +26,6 @@ namespace StoreFixer.Utils
         {
             string keyName = $@"HKLM\SYSTEM\CurrentControlSet\Services\{serviceName}";
             RegistryHelper.SetValue(keyName, "Start", (int)startupType);
-            Console.WriteLine($"Startup type for service \"{serviceName}\" set to {startupType}");
         }
 
         /// <summary>
