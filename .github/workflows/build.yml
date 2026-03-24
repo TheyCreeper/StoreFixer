@@ -20,25 +20,22 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '8.0.x'
-
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1
+        dotnet-version: '10.0.x'
 
     - name: Restore Dependencies
-      run: msbuild StoreFixer.slnx /t:restore /p:Platform="x64"
+      run: dotnet restore StoreFixer.slnx
 
     - name: Build Solution
-      run: msbuild StoreFixer.sln /p:Configuration=Release /p:Platform="x64"
+      run: dotnet build StoreFixer.slnx --configuration Release --no-restore
 
     - name: Publish Application
-      run: msbuild StoreFixer.sln /t:Publish /p:Configuration=Release /p:Platform="x64" /p:PublishDir="D:\a\StoreFixer\Deploy\src\"
+      run: dotnet publish StoreFixer/StoreFixer.csproj --configuration Release --output publish --no-restore
 
-    - name: Create ZIP of MSI
-      run: powershell Compress-Archive -Path "D:\a\StoreFixer\Deploy\src\*" -DestinationPath "D:\a\StoreFixer\StoreFixer.zip"
+    - name: Create ZIP of Artifacts
+      run: powershell Compress-Archive -Path "publish\*" -DestinationPath "StoreFixer.zip"
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: StoreFixer
-        path: D:\a\StoreFixer\StoreFixer\StoreFixer.zip
+        path: StoreFixer.zip
