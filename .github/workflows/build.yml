@@ -1,0 +1,44 @@
+name: Build and Upload Artifacts
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1
+
+    - name: Restore Dependencies
+      run: msbuild StoreFixer.slnx /t:restore /p:Platform="x64"
+
+    - name: Build Solution
+      run: msbuild StoreFixer.sln /p:Configuration=Release /p:Platform="x64"
+
+    - name: Publish Application
+      run: msbuild StoreFixer.sln /t:Publish /p:Configuration=Release /p:Platform="x64" /p:PublishDir="D:\a\StoreFixer\StoreFixer\Deploy\src\"
+
+    - name: Create ZIP of MSI
+      run: powershell Compress-Archive -Path "D:\a\atlas-toolbox\atlas-toolbox\Installer\Output\*" -DestinationPath "D:\a\StoreFixer\StoreFixer\StoreFixer.zip"
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: StoreFixer
+        path: D:\a\StoreFixer\StoreFixer\StoreFixer.zip
