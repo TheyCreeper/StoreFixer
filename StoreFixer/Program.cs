@@ -31,76 +31,83 @@ namespace StoreFixer
 
         static async Task Main(string[] args)
         {
-            if (args[0] == "silent")
-            {
-                isSilent = true;
-                IntPtr hWnd = GetConsoleWindow();
-                ShowWindow(hWnd, SW_HIDE);
-            }
             try
             {
-                string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
-
-                string systemDrive = Environment.GetEnvironmentVariable("SYSTEMDRIVE") ?? "C:";
-                Clear();
-
-                if (IsRunAsTi())
+                if (args[0] == "silent")
                 {
-                    try
-                    {
-                        await Execution();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine();
-                        LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
-                        LogColored($"CRITICAL ERROR: {ex.Message}", MessageType.Critical);
-                        LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                        LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
-                        Console.WriteLine();
-                        await RestoreOnCrash();
-                    }
+                    isSilent = true;
+                    IntPtr hWnd = GetConsoleWindow();
+                    ShowWindow(hWnd, SW_HIDE);
                 }
-                else
-                {
-                    Console.WriteLine();
-                    LogColored("════════════════════════════════════════════════════════════", MessageType.Error);
-                    LogColored("ERROR: Not running as Trusted Installer", MessageType.Error);
-                    LogColored("Please close this application and run it as Trusted Installer.", MessageType.Error);
-                    LogColored("════════════════════════════════════════════════════════════", MessageType.Error);
-                    Console.WriteLine();
-                }
-
-                Console.WriteLine();
-                LogColored("═══════════════════════════════════════════════════════════════", MessageType.Header);
-                LogColored("StoreFixer Execution Completed", MessageType.Header);
-                LogColored("═══════════════════════════════════════════════════════════════", MessageType.Header);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine();
-                LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
-                LogColored($"FATAL ERROR in Main: {ex.Message}", MessageType.Critical);
-                LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
-                Console.WriteLine();
-
-                try
-                {
-                    await RestoreOnCrash();
-                }
-                catch { }
-            }
+            catch { }
             finally
             {
-                if (!isSilent)
+                try
+                {
+                    string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                    logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
+
+                    string systemDrive = Environment.GetEnvironmentVariable("SYSTEMDRIVE") ?? "C:";
+                    Clear();
+
+                    if (IsRunAsTi())
+                    {
+                        try
+                        {
+                            await Execution();
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine();
+                            LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
+                            LogColored($"CRITICAL ERROR: {ex.Message}", MessageType.Critical);
+                            LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
+                            LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
+                            Console.WriteLine();
+                            await RestoreOnCrash();
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine();
+                        LogColored("════════════════════════════════════════════════════════════", MessageType.Error);
+                        LogColored("ERROR: Not running as Trusted Installer", MessageType.Error);
+                        LogColored("Please close this application and run it as Trusted Installer.", MessageType.Error);
+                        LogColored("════════════════════════════════════════════════════════════", MessageType.Error);
+                        Console.WriteLine();
+                    }
+
+                    Console.WriteLine();
+                    LogColored("═══════════════════════════════════════════════════════════════", MessageType.Header);
+                    LogColored("StoreFixer Execution Completed", MessageType.Header);
+                    LogColored("═══════════════════════════════════════════════════════════════", MessageType.Header);
+                }
+                catch (Exception ex)
                 {
                     Console.WriteLine();
-                    Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.Write("Press any key to exit...");
-                    Console.ResetColor();
-                    try { Console.ReadKey(); } catch { }
+                    LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
+                    LogColored($"FATAL ERROR in Main: {ex.Message}", MessageType.Critical);
+                    LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
+                    LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
+                    Console.WriteLine();
+
+                    try
+                    {
+                        await RestoreOnCrash();
+                    }
+                    catch { }
+                }
+                finally
+                {
+                    if (!isSilent)
+                    {
+                        Console.WriteLine();
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.Write("Press any key to exit...");
+                        Console.ResetColor();
+                        try { Console.ReadKey(); } catch { }
+                    }
                 }
             }
         }
