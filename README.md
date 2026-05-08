@@ -1,6 +1,6 @@
 # StoreFixer
 
-StoreFixer requires the .NET 10 runtime to run.
+StoreFixer requires .NET Framework 4.8 to run.
 
-Download .NET 10 from Microsoft:
-https://dotnet.microsoft.com/download/dotnet/10.0
+Download .NET Framework 4.8 from Microsoft:
+https://dotnet.microsoft.com/download/dotnet-framework/net48

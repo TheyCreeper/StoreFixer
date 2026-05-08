@@ -252,7 +252,10 @@ namespace StoreFixer
                     {
                         try
                         {
-                            servicesStartMode.TryAdd(serviceController.ServiceName, serviceController.StartType);
+                            if (!servicesStartMode.ContainsKey(serviceController.ServiceName))
+                            {
+                                servicesStartMode.Add(serviceController.ServiceName, serviceController.StartType);
+                            }
                             LogColored($"{serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
                         }
                         catch (Exception ex)
@@ -267,7 +270,10 @@ namespace StoreFixer
                     {
                         try
                         {
-                            servicesStartMode.TryAdd(serviceController.ServiceName, serviceController.StartType);
+                            if (!servicesStartMode.ContainsKey(serviceController.ServiceName))
+                            {
+                                servicesStartMode.Add(serviceController.ServiceName, serviceController.StartType);
+                            }
                             LogColored($"{serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
                         }
                         catch (Exception ex)
@@ -412,7 +418,10 @@ namespace StoreFixer
                 {
                     try
                     {
-                        servicesBackup.TryAdd(service.ServiceName, service.StartType);
+                        if (!servicesBackup.ContainsKey(service.ServiceName))
+                        {
+                            servicesBackup.Add(service.ServiceName, service.StartType);
+                        }
                     }
                     catch (Exception ex)
                     {

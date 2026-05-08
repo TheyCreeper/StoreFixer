@@ -25,8 +25,8 @@ namespace StoreFixer.Utils
 
             value = value switch
             {
-                uint => BitConverter.ToInt32(BitConverter.GetBytes((uint)value)),
-                ulong => BitConverter.ToInt64(BitConverter.GetBytes((ulong)value)),
+                uint => BitConverter.ToInt32(BitConverter.GetBytes((uint)value), 0),
+                ulong => BitConverter.ToInt64(BitConverter.GetBytes((ulong)value), 0),
                 _ => value
             };
 
@@ -48,8 +48,8 @@ namespace StoreFixer.Utils
 
             data = data switch
             {
-                uint => BitConverter.ToInt32(BitConverter.GetBytes((uint)data)),
-                ulong => BitConverter.ToInt64(BitConverter.GetBytes((ulong)data)),
+                uint => BitConverter.ToInt32(BitConverter.GetBytes((uint)data), 0),
+                ulong => BitConverter.ToInt64(BitConverter.GetBytes((ulong)data), 0),
                 _ => data
             };
 
@@ -72,7 +72,7 @@ namespace StoreFixer.Utils
                 _ => throw new Exception("Hive was not found")
             };
 
-            string keyName = string.Join('\\', split[1..]);
+            string keyName = string.Join("\\", split.Skip(1));
 
             RegistryKey baseKey;
             if (Environment.Is64BitOperatingSystem)
@@ -89,8 +89,8 @@ namespace StoreFixer.Utils
         {
             string[] split = keyPath.Split('\\');
 
-            string parentKeyPath = string.Join('\\', split[..^1]);
-            string targetKeyName = split[^1];
+            string parentKeyPath = string.Join("\\", split.Take(split.Length - 1));
+            string targetKeyName = split[split.Length - 1];
 
             using RegistryKey key = OpenKey(parentKeyPath, true);
             key?.DeleteSubKeyTree(targetKeyName, false);
