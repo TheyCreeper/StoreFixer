@@ -13,7 +13,7 @@ namespace StoreFixer
         private static string logFilePath = string.Empty;
         private static Dictionary<string, ServiceStartMode> servicesBackup = new();
         private static HashSet<ServiceController> allServices = new();
-        private static bool executionStarted = false, isSilent = false, isSetScheduledTaskOnCrash = false;
+        private static bool executionStarted = false, isSilent = false, isSetScheduledTaskOnCrash = false, noRestart = false;
         [DllImport("user32.dll")]
         static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
@@ -42,6 +42,10 @@ namespace StoreFixer
                 if (args.Any(x => x == "isSetScheduledTaskOnCrash"))
                 {
                     isSetScheduledTaskOnCrash = true;
+                }
+                if (args.Any(x => x == "noRestart"))
+                {
+                    noRestart = true;
                 }
             }
             catch { }
@@ -228,6 +232,7 @@ namespace StoreFixer
             LogColored("Emergency restoration complete.", MessageType.Info);
             LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
             Console.WriteLine();
+            if (!noRestart) Process.Start("shutdown", "/r /t 10");
         }
 
         /// <summary>
