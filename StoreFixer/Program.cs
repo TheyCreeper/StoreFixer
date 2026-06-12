@@ -13,7 +13,7 @@ namespace StoreFixer
         private static string logFilePath = string.Empty;
         private static Dictionary<string, ServiceStartMode> servicesBackup = new();
         private static HashSet<ServiceController> allServices = new();
-        private static bool executionStarted = false, isSilent = false;
+        private static bool executionStarted = false, isSilent = false, isSetScheduledTaskOnCrash = false;
         [DllImport("user32.dll")]
         static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
@@ -33,11 +33,15 @@ namespace StoreFixer
         {
             try
             {
-                if (args[0] == "silent")
+                if (args.Any(x => x == "silent"))
                 {
                     isSilent = true;
                     IntPtr hWnd = GetConsoleWindow();
                     ShowWindow(hWnd, SW_HIDE);
+                }
+                if (args.Any(x => x == "isSetScheduledTaskOnCrash"))
+                {
+                    isSetScheduledTaskOnCrash = true;
                 }
             }
             catch { }
@@ -103,15 +107,93 @@ namespace StoreFixer
                         try { Console.ReadKey(); } catch { }
                     }
                 }
+                try
+                {
+                    string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                    logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
+                    LogColored(logFilePath);
+                    string systemDrive = Environment.GetEnvironmentVariable("SYSTEMDRIVE") ?? "C:";
+                    Clear();
+
+                    if (IsRunAsTi())
+                    {
+                        try
+                        {
+                            await Execution();
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine();
+                            LogColored($"CRITICAL ERROR: {ex.Message}", MessageType.Critical);
+                            LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
+                            Console.WriteLine();
+                            await RestoreOnCrash();
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine();
+                        LogColored("ERROR: Not running as Trusted Installer", MessageType.Error);
+                        LogColored("Please close this application and run it as Trusted Installer.", MessageType.Error);
+                        Console.WriteLine();
+                    }
+
+                    Console.WriteLine();
+                    LogColored("StoreFixer Execution Completed", MessageType.Header);
+                    if (isSilent) Environment.Exit(0);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine();
+                    LogColored($"FATAL ERROR in Main: {ex.Message}", MessageType.Critical);
+                    LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
+                    Console.WriteLine();
+
+                    try
+                    {
+                        await RestoreOnCrash();
+                    }
+                    catch { }
+                }
+                finally
+                {
+                    if (isSilent) Environment.Exit(0);
+                    if (!isSilent)
+                    {
+                        Console.WriteLine();
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.Write("Press any key to exit...");
+                        Console.ResetColor();
+                        try { Console.ReadKey(); } catch { }
+                    }
+                }
             }
         }
         [DllImport("kernel32.dll")]
         static extern IntPtr GetConsoleWindow();
+
+        /// <summary>
+        /// In case of a crash, sets a scheduled task which asks the user
+        /// if they want to retry after a restart
+        /// </summary>
+        /// <returns></returns>
+        private static async Task SetScheduledTask()
+        {
+            RegistryHelper.SetValue("HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+                "MsStoreFix",
+                "powershell -EP RemoteSigned -NoP & \"\"\"$([Environment]::GetFolderPath('Windows'))\\AtlasModules\\Scripts\\ScriptWrappers\\StoreFixerPrompt.ps1\"\"\"");
+        }
+
         /// <summary>
         /// Emergency restoration if execution crashes
         /// </summary>
         private static async Task RestoreOnCrash()
         {
+            if (isSetScheduledTaskOnCrash)
+            {
+                await SetScheduledTask();
+            }
+
             Console.WriteLine();
             LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Critical);
             LogColored("║                  EMERGENCY RESTORATION                     ║", MessageType.Critical);
@@ -464,11 +546,12 @@ namespace StoreFixer
                 }
 
                 bool allDisabled = false;
-                int maxRetries = 10;
+                int maxRetries = 5;
                 int retryCount = 0;
 
                 while (!allDisabled && retryCount < maxRetries)
                 {
+                    LogColored($"Attemp {retryCount + 1}/{maxRetries}: Verifying services state..", MessageType.Info);
                     allDisabled = true;
 
                     foreach (ServiceController service in services)
@@ -532,11 +615,12 @@ namespace StoreFixer
 
                 // Verify restoration
                 bool allRestored = false;
-                int maxRetries = 10;
+                int maxRetries = 5;
                 int retryCount = 0;
 
                 while (!allRestored && retryCount < maxRetries)
                 {
+                    LogColored($"Attemp {retryCount + 1}/{maxRetries}: Verifying service restoration...", MessageType.Info);
                     allRestored = true;
 
                     foreach (KeyValuePair<string, ServiceStartMode> kvp in servicesStartMode)
@@ -590,11 +674,12 @@ namespace StoreFixer
                 await Task.Delay(1000);
 
                 bool fileDeleted = false;
-                int deleteAttempts = 10;
+                int deleteAttempts = 5;
                 int currentAttempt = 0;
 
                 while (!fileDeleted && currentAttempt < deleteAttempts)
                 {
+                    LogColored($"Attemp {currentAttempt + 1}/{deleteAttempts}: Attempting to delete file...", MessageType.Info);
                     currentAttempt++;
 
                     try
@@ -731,12 +816,13 @@ namespace StoreFixer
                 }
                 // Verify all services are stopped
                 bool allStopped = false;
-                int maxRetries = 10;
+                int maxRetries = 5;
                 int retryCount = 0;
                 int barWidth = 30;
 
                 while (!allStopped && retryCount < maxRetries)
                 {
+                    LogColored($"Attemp {retryCount + 1}/{maxRetries}: Attempting to stop services...", MessageType.Info);
                     allStopped = true;
                     await Task.Delay(500); // Wait for services to stop
 
@@ -798,7 +884,8 @@ namespace StoreFixer
 
                         string animatedBar = new string(barChars);
                         Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.Write($"\r  [{animatedBar}] Waiting for {stuckServices.Count} service(s) to stop... (Attempt {retryCount + 1}/{maxRetries})");
+                        string fullServiceList = string.Join(",", stuckServices);
+                        Console.Write($"\r  [{animatedBar}] Waiting for {stuckServices.Count} service(s) ({fullServiceList}) to stop... (Attempt {retryCount + 1}/{maxRetries})");
                         Console.ResetColor();
                     }
 
