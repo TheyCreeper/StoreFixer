@@ -1,4 +1,5 @@
 ﻿using StoreFixer.Utils;
+using Microsoft.Win32;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -13,7 +14,12 @@ namespace StoreFixer
         private static string logFilePath = string.Empty;
         private static Dictionary<string, ServiceStartMode> servicesBackup = new();
         private static HashSet<ServiceController> allServices = new();
-        private static bool executionStarted = false, isSilent = false, isSetScheduledTaskOnCrash = false, noRestart = false;
+        private static bool isSilent = false, isSetScheduledTaskOnCrash = false, noRestart = false, isEmergencyRestore = false;
+        private const string AtlasTempKey = @"HKLM\SOFTWARE\AtlasOS\Temp";
+        private const string AtlasTempSubKey = @"SOFTWARE\AtlasOS\Temp";
+        private const string RecoveryKey = @"HKLM\SOFTWARE\AtlasOS\StoreFixerRecovery";
+        private const string RecoverySubKey = @"SOFTWARE\AtlasOS\StoreFixerRecovery";
+        private const string WinlogonKey = @"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon";
         [DllImport("user32.dll")]
         static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
@@ -33,148 +39,80 @@ namespace StoreFixer
         {
             try
             {
-                if (args.Any(x => x == "silent"))
+                ParseArguments(args);
+
+                string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
+                LogColored(logFilePath);
+                Clear();
+
+                if (!IsRunAsTi())
                 {
-                    isSilent = true;
-                    IntPtr hWnd = GetConsoleWindow();
-                    ShowWindow(hWnd, SW_HIDE);
+                    Console.WriteLine();
+                    LogColored("ERROR: Not running as Trusted Installer", MessageType.Error);
+                    LogColored("Please close this application and run it as Trusted Installer.", MessageType.Error);
+                    Console.WriteLine();
+                    return;
                 }
-                if (args.Any(x => x == "isSetScheduledTaskOnCrash"))
+
+                if (isEmergencyRestore)
                 {
-                    isSetScheduledTaskOnCrash = true;
+                    await EmergencyRestoreFromSafeMode();
                 }
-                if (args.Any(x => x == "noRestart"))
+                else
                 {
-                    noRestart = true;
+                    await Execution();
                 }
+
+                Console.WriteLine();
+                LogColored("StoreFixer Execution Completed", MessageType.Header);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine();
+                MarkRecoveryError();
+                LogColored($"FATAL ERROR in Main: {ex.Message}", MessageType.Critical);
+                LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
+                Console.WriteLine();
+
+                try
+                {
+                    await RestoreOnCrash();
+                }
+                catch { }
+            }
             finally
             {
-                try
-                {
-                    string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                    logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
-                    LogColored(logFilePath);
-                    string systemDrive = Environment.GetEnvironmentVariable("SYSTEMDRIVE") ?? "C:";
-                    Clear();
-
-                    if (IsRunAsTi())
-                    {
-                        try
-                        {
-                            await Execution();
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine();
-                            LogColored($"CRITICAL ERROR: {ex.Message}", MessageType.Critical);
-                            LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                            Console.WriteLine();
-                            await RestoreOnCrash();
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine();
-                        LogColored("ERROR: Not running as Trusted Installer", MessageType.Error);
-                        LogColored("Please close this application and run it as Trusted Installer.", MessageType.Error);
-                        Console.WriteLine();
-                    }
-
-                    Console.WriteLine();
-                    LogColored("StoreFixer Execution Completed", MessageType.Header);
-                    if (isSilent) Environment.Exit(0);
-                }
-                catch (Exception ex)
+                if (isSilent) Environment.Exit(0);
+                if (!isSilent)
                 {
                     Console.WriteLine();
-                    LogColored($"FATAL ERROR in Main: {ex.Message}", MessageType.Critical);
-                    LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                    Console.WriteLine();
-
-                    try
-                    {
-                        await RestoreOnCrash();
-                    }
-                    catch { }
-                }
-                finally
-                {
-                    if (isSilent) Environment.Exit(0);
-                    if (!isSilent)
-                    {
-                        Console.WriteLine();
-                        Console.ForegroundColor = ConsoleColor.Cyan;
-                        Console.Write("Press any key to exit...");
-                        Console.ResetColor();
-                        try { Console.ReadKey(); } catch { }
-                    }
-                }
-                try
-                {
-                    string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                    logFilePath = Path.Combine(desktopPath, "StoreFixer_Log.txt");
-                    LogColored(logFilePath);
-                    string systemDrive = Environment.GetEnvironmentVariable("SYSTEMDRIVE") ?? "C:";
-                    Clear();
-
-                    if (IsRunAsTi())
-                    {
-                        try
-                        {
-                            await Execution();
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine();
-                            LogColored($"CRITICAL ERROR: {ex.Message}", MessageType.Critical);
-                            LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                            Console.WriteLine();
-                            await RestoreOnCrash();
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine();
-                        LogColored("ERROR: Not running as Trusted Installer", MessageType.Error);
-                        LogColored("Please close this application and run it as Trusted Installer.", MessageType.Error);
-                        Console.WriteLine();
-                    }
-
-                    Console.WriteLine();
-                    LogColored("StoreFixer Execution Completed", MessageType.Header);
-                    if (isSilent) Environment.Exit(0);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine();
-                    LogColored($"FATAL ERROR in Main: {ex.Message}", MessageType.Critical);
-                    LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
-                    Console.WriteLine();
-
-                    try
-                    {
-                        await RestoreOnCrash();
-                    }
-                    catch { }
-                }
-                finally
-                {
-                    if (isSilent) Environment.Exit(0);
-                    if (!isSilent)
-                    {
-                        Console.WriteLine();
-                        Console.ForegroundColor = ConsoleColor.Cyan;
-                        Console.Write("Press any key to exit...");
-                        Console.ResetColor();
-                        try { Console.ReadKey(); } catch { }
-                    }
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.Write("Press any key to exit...");
+                    Console.ResetColor();
+                    try { Console.ReadKey(); } catch { }
                 }
             }
         }
         [DllImport("kernel32.dll")]
         static extern IntPtr GetConsoleWindow();
+
+        private static void ParseArguments(string[] args)
+        {
+            isSilent = args.Any(x => x.Equals("silent", StringComparison.OrdinalIgnoreCase));
+            isSetScheduledTaskOnCrash = args.Any(x => x.Equals("isSetScheduledTaskOnCrash", StringComparison.OrdinalIgnoreCase));
+            noRestart = args.Any(x => x.Equals("noRestart", StringComparison.OrdinalIgnoreCase));
+            isEmergencyRestore = args.Any(x =>
+                x.Equals("emergencyRestore", StringComparison.OrdinalIgnoreCase) ||
+                x.Equals("restore", StringComparison.OrdinalIgnoreCase) ||
+                x.Equals("repair", StringComparison.OrdinalIgnoreCase));
+
+            if (isSilent)
+            {
+                IntPtr hWnd = GetConsoleWindow();
+                ShowWindow(hWnd, SW_HIDE);
+            }
+        }
 
         /// <summary>
         /// In case of a crash, sets a scheduled task which asks the user
@@ -205,21 +143,23 @@ namespace StoreFixer
             LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Critical);
             Console.WriteLine();
 
-            if (servicesBackup.Count > 0)
+            Dictionary<string, ServiceStartMode> restoreBackup = servicesBackup.Count > 0
+                ? servicesBackup
+                : ReadStoredServiceBackup();
+
+            if (restoreBackup.Count > 0)
             {
-                LogColored($"Restoring {servicesBackup.Count} services from backup...", MessageType.Warning);
+                LogColored($"Restoring {restoreBackup.Count} services from backup...", MessageType.Warning);
                 Console.WriteLine();
-                await RestoreServicesAsync(servicesBackup);
+                await RestoreServicesAsync(restoreBackup);
                 await Task.Delay(1000);
                 Console.WriteLine();
 
-                if (allServices.Count > 0)
-                {
-                    LogColored($"Starting {allServices.Count} services...", MessageType.Warning);
-                    Console.WriteLine();
-                    await StartServicesAsync(allServices);
-                    Console.WriteLine();
-                }
+                LogColored("Starting restored services...", MessageType.Warning);
+                Console.WriteLine();
+                await StartServicesByNameAsync(restoreBackup);
+                ClearSafeModeRecovery();
+                Console.WriteLine();
             }
             else
             {
@@ -232,7 +172,292 @@ namespace StoreFixer
             LogColored("Emergency restoration complete.", MessageType.Info);
             LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
             Console.WriteLine();
-            if (!noRestart) Process.Start("shutdown", "/r /t 10");
+            ShowSupportMessage();
+        }
+
+        private static async Task EmergencyRestoreFromSafeMode()
+        {
+            Console.WriteLine();
+            LogColored("╔════════════════════════════════════════════════════════════╗", MessageType.Critical);
+            LogColored("║             SAFE MODE EMERGENCY RESTORATION                ║", MessageType.Critical);
+            LogColored("║                    PLEASE WAIT...                          ║", MessageType.Critical);
+            LogColored("╚════════════════════════════════════════════════════════════╝", MessageType.Critical);
+            Console.WriteLine();
+
+            Dictionary<string, ServiceStartMode> backup = ReadStoredServiceBackup();
+            if (backup.Count == 0)
+            {
+                LogColored("No service backup was found. Applying conservative Store service defaults.", MessageType.Warning);
+                backup = GetFallbackServiceBackup();
+            }
+
+            if (backup.Count == 0)
+            {
+                LogColored("No services were available to repair.", MessageType.Error);
+                ShowSupportMessage();
+                return;
+            }
+
+            await RestoreServicesAsync(backup);
+            await StartServicesByNameAsync(backup);
+            ClearSafeModeRecovery();
+
+            LogColored("Safe Mode emergency restoration complete.", MessageType.Success);
+            if (!noRestart)
+            {
+                LogColored("Restarting back to normal Windows in 10 seconds...", MessageType.Info);
+                Process.Start("shutdown", "/r /t 10");
+            }
+        }
+
+        private static void ConfigureSafeModeRecovery(Dictionary<string, ServiceStartMode> servicesStartMode, bool startWatchdog = true)
+        {
+            if (servicesStartMode.Count == 0)
+            {
+                throw new InvalidOperationException("No services were backed up. Refusing to continue.");
+            }
+
+            string windir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string runAsTiPath = Path.Combine(windir, @"AtlasModules\Scripts\RunAsTI.cmd");
+            string storeFixerPath = Path.Combine(windir, @"AtlasModules\Tools\StoreFixer.exe");
+            string currentShell = (RegistryHelper.GetValue(WinlogonKey, "Shell") as string) ?? "explorer.exe";
+            string recoveryShell = $"explorer.exe,cmd /c \"\"{runAsTiPath}\" \"{storeFixerPath}\" emergencyRestore -wait\"";
+
+            try
+            {
+                RegistryHelper.SetValue(RecoveryKey, "Active", 1, RegistryValueKind.DWord);
+                RegistryHelper.SetValue(RecoveryKey, "State", "Armed", RegistryValueKind.String);
+                RegistryHelper.SetValue(RecoveryKey, "OriginalShell", currentShell, RegistryValueKind.String);
+                RegistryHelper.SetValue(RecoveryKey, "StartedAtUtc", DateTime.UtcNow.ToString("O"), RegistryValueKind.String);
+                RegistryHelper.SetValue(WinlogonKey, "Shell", recoveryShell, RegistryValueKind.String);
+
+                RunProcessOrThrow("bcdedit", "/set {current} safeboot minimal");
+                if (startWatchdog)
+                {
+                    StartInterruptionWatchdog();
+                }
+                LogColored("Safe Mode emergency recovery has been armed.", MessageType.Warning);
+            }
+            catch
+            {
+                RegistryHelper.SetValue(WinlogonKey, "Shell", currentShell, RegistryValueKind.String);
+                try { RegistryHelper.DeleteKey(RecoveryKey); } catch { }
+                throw;
+            }
+        }
+
+        private static void ClearSafeModeRecovery()
+        {
+            try
+            {
+                string originalShell = (RegistryHelper.GetValue(RecoveryKey, "OriginalShell") as string) ?? "explorer.exe";
+                RegistryHelper.SetValue(WinlogonKey, "Shell", originalShell, RegistryValueKind.String);
+            }
+            catch (Exception ex)
+            {
+                LogColored($"Failed to restore Winlogon shell: {ex.Message}", MessageType.Error);
+            }
+
+            try
+            {
+                RunProcessOrLog("bcdedit", "/deletevalue {current} safeboot");
+                RunProcess("bcdedit", "/deletevalue {current} safebootalternateshell");
+            }
+            catch { }
+
+            try
+            {
+                RegistryHelper.DeleteKey(RecoveryKey);
+            }
+            catch { }
+
+            LogColored("Safe Mode emergency recovery has been cleared.", MessageType.Success);
+        }
+
+        private static void MarkRecoveryError()
+        {
+            try
+            {
+                RegistryHelper.SetValue(RecoveryKey, "State", "Error", RegistryValueKind.String);
+            }
+            catch { }
+        }
+
+        private static void StartInterruptionWatchdog()
+        {
+            int pid = Process.GetCurrentProcess().Id;
+            string command = $@"
+$pidToWatch = {pid}
+while (Get-Process -Id $pidToWatch -ErrorAction SilentlyContinue) {{
+    Start-Sleep -Seconds 2
+}}
+$state = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\AtlasOS\StoreFixerRecovery' -Name State -ErrorAction SilentlyContinue).State
+if ($state -eq 'Armed') {{
+    shutdown /r /t 10 /c 'StoreFixer was interrupted. Rebooting into Safe Mode recovery.'
+}}
+";
+
+            string encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -WindowStyle Hidden -EncodedCommand {encodedCommand}",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+
+        private static void ShowSupportMessage()
+        {
+            Console.WriteLine();
+            LogColored("StoreFixer hit an error and will not restart automatically.", MessageType.Critical);
+            LogColored("Please contact support in the Atlas Discord and attach StoreFixer_Log.txt from your Desktop.", MessageType.Critical);
+            Console.WriteLine();
+        }
+
+        private static Dictionary<string, ServiceStartMode> ReadStoredServiceBackup()
+        {
+            Dictionary<string, ServiceStartMode> backup = new(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                using RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                using RegistryKey? key = baseKey.OpenSubKey(AtlasTempSubKey, false);
+                if (key is null)
+                {
+                    return backup;
+                }
+
+                foreach (string valueName in key.GetValueNames())
+                {
+                    object? value = key.GetValue(valueName);
+                    if (TryParseServiceStartMode(value, out ServiceStartMode mode) && ServiceExists(valueName))
+                    {
+                        backup[valueName] = mode;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogColored($"Failed to read stored service backup: {ex.Message}", MessageType.Error);
+            }
+
+            return backup;
+        }
+
+        private static Dictionary<string, ServiceStartMode> GetFallbackServiceBackup()
+        {
+            string[] fallbackServices =
+            {
+                "Appinfo",
+                "ClipSVC",
+                "AppXSvc",
+                "StateRepository",
+                "InstallService",
+                "LicenseManager"
+            };
+
+            Dictionary<string, ServiceStartMode> backup = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string serviceName in fallbackServices)
+            {
+                if (ServiceExists(serviceName))
+                {
+                    backup[serviceName] = ServiceStartMode.Manual;
+                }
+            }
+
+            return backup;
+        }
+
+        private static bool TryParseServiceStartMode(object? value, out ServiceStartMode mode)
+        {
+            mode = ServiceStartMode.Manual;
+
+            if (value is int intValue && Enum.IsDefined(typeof(ServiceStartMode), intValue))
+            {
+                mode = (ServiceStartMode)intValue;
+                return true;
+            }
+
+            if (value is string stringValue && Enum.TryParse(stringValue, ignoreCase: true, out mode))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool ServiceExists(string serviceName)
+        {
+            try
+            {
+                _ = ServiceHelper.GetStartupType(serviceName);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static async Task StartServicesByNameAsync(Dictionary<string, ServiceStartMode> servicesStartMode)
+        {
+            HashSet<ServiceController> services = new();
+
+            foreach (KeyValuePair<string, ServiceStartMode> kvp in servicesStartMode)
+            {
+                if (kvp.Value == ServiceStartMode.Disabled)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    services.Add(ServiceHelper.GetServiceController(kvp.Key));
+                }
+                catch (Exception ex)
+                {
+                    LogColored($"Error retrieving service {kvp.Key}: {ex.Message}", MessageType.Error);
+                }
+            }
+
+            await StartServicesAsync(services);
+        }
+
+        private static void RunProcessOrThrow(string fileName, string arguments)
+        {
+            using Process process = RunProcess(fileName, arguments);
+
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"{fileName} {arguments} failed with exit code {process.ExitCode}.");
+            }
+        }
+
+        private static Process RunProcess(string fileName, string arguments)
+        {
+            Process process = Process.Start(new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }) ?? throw new InvalidOperationException($"Failed to start {fileName}.");
+
+            process.WaitForExit();
+            return process;
+        }
+
+        private static void RunProcessOrLog(string fileName, string arguments)
+        {
+            try
+            {
+                RunProcessOrThrow(fileName, arguments);
+            }
+            catch (Exception ex)
+            {
+                LogColored($"{fileName} {arguments}: {ex.Message}", MessageType.Warning);
+            }
         }
 
         /// <summary>
@@ -311,8 +536,6 @@ namespace StoreFixer
         {
             try
             {
-                executionStarted = true;
-
                 // ====================================================================
                 // PHASE 1: SERVICE BACKUP
                 // ====================================================================
@@ -373,13 +596,14 @@ namespace StoreFixer
                     {
                         try
                         {
-                            RegistryHelper.SetValue(@"HKLM\SOFTWARE\AtlasOS\Temp", kvp.Key, kvp.Value.ToString(), Microsoft.Win32.RegistryValueKind.String);
+                            RegistryHelper.SetValue(AtlasTempKey, kvp.Key, kvp.Value.ToString(), Microsoft.Win32.RegistryValueKind.String);
                         }
                         catch (Exception ex)
                         {
                             LogColored($"Failed to save backup for {kvp.Key}: {ex.Message}", MessageType.Error);
                         }
                     }
+                    ConfigureSafeModeRecovery(servicesStartMode);
                     Console.WriteLine();
 
                     // ================================================================
@@ -442,6 +666,7 @@ namespace StoreFixer
                     LogColored("Starting root services...", MessageType.Header);
                     await StartServicesAsync(rootServices);
                     await Task.Delay(1000);
+                    ClearSafeModeRecovery();
                     Console.WriteLine();
                     Console.WriteLine();
                     Console.WriteLine();
@@ -462,15 +687,6 @@ namespace StoreFixer
                     LogColored($"Stack trace: {ex.StackTrace}", MessageType.Error);
                     LogColored("════════════════════════════════════════════════════════════", MessageType.Error);
                     Console.WriteLine();
-
-                    // If something fails during operations, immediately restore
-                    LogColored("Triggering automatic restoration...", MessageType.Warning);
-                    Console.WriteLine();
-                    if (servicesBackup.Count > 0)
-                    {
-                        await RestoreServicesAsync(servicesBackup);
-                        await StartServicesAsync(allServices);
-                    }
 
                     throw;
                 }
@@ -769,7 +985,7 @@ namespace StoreFixer
                             fileDeleted = true;
                         }
                     }
-                    catch (Exception ex)
+                    catch
                     {
                         if (currentAttempt >= deleteAttempts)
                         {
