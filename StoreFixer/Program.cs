@@ -108,7 +108,7 @@ namespace StoreFixer
                         Console.ForegroundColor = ConsoleColor.Cyan;
                         Console.Write("Press any key to exit...");
                         Console.ResetColor();
-                        try { Console.ReadKey(); } catch { }
+                        try { Console.ReadKey(); } catch { } finally { Environment.Exit(0); }
                     }
                 }
                 try
