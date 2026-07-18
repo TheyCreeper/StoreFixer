@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.ServiceProcess;
 using System.Text;
+using Microsoft.Win32;
 
 namespace StoreFixer
 {
@@ -13,10 +14,10 @@ namespace StoreFixer
         private static string logFilePath = string.Empty;
         private static Dictionary<string, ServiceStartMode> servicesBackup = new();
         private static HashSet<ServiceController> allServices = new();
-        private static bool executionStarted = false, isSilent = false, isSetScheduledTaskOnCrash = false, noRestart = false;
+        private static bool executionStarted = false, isSilent = false, isSetScheduledTaskOnCrash = false, noRestart = false, isSafeMode = false;
         [DllImport("user32.dll")]
         static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
+        
         const int SW_HIDE = 0;
         // Console color scheme
         private enum MessageType
@@ -33,6 +34,7 @@ namespace StoreFixer
         {
             try
             {
+                isSafeMode = GetBootMode();
                 if (args.Any(x => x == "silent"))
                 {
                     isSilent = true;
@@ -47,6 +49,8 @@ namespace StoreFixer
                 {
                     noRestart = true;
                 }
+                if (!isSafeMode) ToggleSafeMode(true);
+                else ToggleSafeMode(false);
             }
             catch { }
             finally
@@ -84,6 +88,7 @@ namespace StoreFixer
 
                     Console.WriteLine();
                     LogColored("StoreFixer Execution Completed", MessageType.Header);
+                    ToggleSafeMode(false);
                     if (isSilent) Environment.Exit(0);
                 }
                 catch (Exception ex)
@@ -144,6 +149,7 @@ namespace StoreFixer
 
                     Console.WriteLine();
                     LogColored("StoreFixer Execution Completed", MessageType.Header);
+                    ToggleSafeMode(false);
                     if (isSilent) Environment.Exit(0);
                 }
                 catch (Exception ex)
@@ -161,6 +167,7 @@ namespace StoreFixer
                 }
                 finally
                 {
+                    ToggleSafeMode(false);
                     if (isSilent) Environment.Exit(0);
                     if (!isSilent)
                     {
@@ -176,6 +183,32 @@ namespace StoreFixer
         [DllImport("kernel32.dll")]
         static extern IntPtr GetConsoleWindow();
 
+        /// <summary>
+        /// Sets next boot mode to be safe mode
+        /// and adds run once for this task
+        /// </summary>
+        /// <param name="enable"></param>
+        private static void ToggleSafeMode(bool enable)
+        {
+            if (enable)
+            {
+                RegistryHelper.RunCommand("bcdedit", "/set {current} safeboot network");
+                RegistryHelper.SetValue("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+                    "*!MsStoreFix",
+                    "powershell -EP RemoteSigned -NoP & \"\"\"$([Environment]::GetFolderPath('Windows'))\\AtlasModules\\Scripts\\ScriptWrappers\\StoreFixerPrompt.ps1\"\"\"",
+                    Microsoft.Win32.RegistryValueKind.String);
+                return;
+            }
+            RegistryHelper.RunCommand("bcdedit", "/deletevalue {current} safeboot");
+            RegistryHelper.DeleteValue(@"HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce", "*!MsStoreFix");
+        }
+        
+        public static bool GetBootMode()
+        {
+            var safeBootVar = Environment.GetEnvironmentVariable("SAFEBOOT_OPTION");
+            return !string.IsNullOrEmpty(safeBootVar);
+        }
+        
         /// <summary>
         /// In case of a crash, sets a scheduled task which asks the user
         /// if they want to retry after a restart
@@ -232,6 +265,7 @@ namespace StoreFixer
             LogColored("Emergency restoration complete.", MessageType.Info);
             LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
             Console.WriteLine();
+            ToggleSafeMode(false);
             if (!noRestart) Process.Start("shutdown", "/r /t 10");
         }
 
@@ -341,9 +375,9 @@ namespace StoreFixer
                         {
                             if (!servicesStartMode.ContainsKey(serviceController.ServiceName))
                             {
-                                servicesStartMode.Add(serviceController.ServiceName, serviceController.StartType);
+                                servicesStartMode.Add(serviceController.ServiceName, GetServiceStartupMode(serviceController.ServiceName, serviceController.StartType));
                             }
-                            LogColored($"{serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
+                            LogColored($"{serviceController.ServiceName} ({servicesStartMode[serviceController.ServiceName]})", MessageType.Info);
                         }
                         catch (Exception ex)
                         {
@@ -359,9 +393,9 @@ namespace StoreFixer
                         {
                             if (!servicesStartMode.ContainsKey(serviceController.ServiceName))
                             {
-                                servicesStartMode.Add(serviceController.ServiceName, serviceController.StartType);
+                                servicesStartMode.Add(serviceController.ServiceName, GetServiceStartupMode(serviceController.ServiceName, serviceController.StartType));
                             }
-                            LogColored($"{serviceController.ServiceName} ({serviceController.StartType})", MessageType.Info);
+                            LogColored($"{serviceController.ServiceName} ({servicesStartMode[serviceController.ServiceName]})", MessageType.Info);
                         }
                         catch (Exception ex)
                         {
@@ -369,15 +403,18 @@ namespace StoreFixer
                         }
                     }
 
-                    foreach (KeyValuePair<string, ServiceStartMode> kvp in servicesStartMode)
+                    if (!isSafeMode)
                     {
-                        try
+                        foreach (KeyValuePair<string, ServiceStartMode> kvp in servicesStartMode)
                         {
-                            RegistryHelper.SetValue(@"HKLM\SOFTWARE\AtlasOS\Temp", kvp.Key, kvp.Value.ToString(), Microsoft.Win32.RegistryValueKind.String);
-                        }
-                        catch (Exception ex)
-                        {
-                            LogColored($"Failed to save backup for {kvp.Key}: {ex.Message}", MessageType.Error);
+                            try
+                            {
+                                RegistryHelper.SetValue(@"HKLM\SOFTWARE\AtlasOS\Temp", kvp.Key, kvp.Value.ToString(), Microsoft.Win32.RegistryValueKind.String);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogColored($"Failed to save backup for {kvp.Key}: {ex.Message}", MessageType.Error);
+                            }
                         }
                     }
                     Console.WriteLine();
@@ -431,20 +468,23 @@ namespace StoreFixer
                     // ================================================================
                     // PHASE 7: STARTING SERVICES
                     // ================================================================
-                    LogColored("Starting services", MessageType.Header);
-                    Console.WriteLine();
-
-                    LogColored("Starting dependent services...", MessageType.Header);
-                    await StartServicesAsync(dependentServices);
-                    await Task.Delay(1000);
-                    Console.WriteLine();
-
-                    LogColored("Starting root services...", MessageType.Header);
-                    await StartServicesAsync(rootServices);
-                    await Task.Delay(1000);
-                    Console.WriteLine();
-                    Console.WriteLine();
-                    Console.WriteLine();
+                    if (!isSafeMode)
+                    {
+                        LogColored("Starting services", MessageType.Header);
+                        Console.WriteLine();
+    
+                        LogColored("Starting dependent services...", MessageType.Header);
+                        await StartServicesAsync(dependentServices);
+                        await Task.Delay(1000);
+                        Console.WriteLine();
+    
+                        LogColored("Starting root services...", MessageType.Header);
+                        await StartServicesAsync(rootServices);
+                        await Task.Delay(1000);
+                        Console.WriteLine();
+                        Console.WriteLine();
+                        Console.WriteLine();
+                    }
 
                     // ================================================================
                     // SUCCESS
@@ -453,6 +493,10 @@ namespace StoreFixer
                     LogColored("Execution completed successfully!", MessageType.Success);
                     LogColored("════════════════════════════════════════════════════════════", MessageType.Success);
                     Console.WriteLine();
+                    if (isSafeMode) 
+                    {
+                        Process.Start("shutdown", "/r /t 0");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -471,7 +515,8 @@ namespace StoreFixer
                         await RestoreServicesAsync(servicesBackup);
                         await StartServicesAsync(allServices);
                     }
-
+                    ToggleSafeMode(true);
+                    Process.Start("shutdown", "/r /t 3");
                     throw;
                 }
             }
@@ -483,6 +528,9 @@ namespace StoreFixer
                 LogColored($"Stack trace: {ex.StackTrace}", MessageType.Critical);
                 LogColored("════════════════════════════════════════════════════════════", MessageType.Critical);
                 Console.WriteLine();
+                if (!isSafeMode) throw;
+                ToggleSafeMode(true);
+                Process.Start("shutdown", "/r /t 3");
                 throw;
             }
         }
@@ -500,14 +548,15 @@ namespace StoreFixer
                 // Store all services for emergency restoration
                 allServices.UnionWith(rootServices);
                 allServices.UnionWith(dependentServices);
-
+                
                 foreach (ServiceController service in allServices)
                 {
                     try
                     {
                         if (!servicesBackup.ContainsKey(service.ServiceName))
                         {
-                            servicesBackup.Add(service.ServiceName, service.StartType);
+                            ServiceStartMode startupMode = GetServiceStartupMode(service.ServiceName, service.StartType);
+                            servicesBackup.Add(service.ServiceName, startupMode);
                         }
                     }
                     catch (Exception ex)
@@ -524,6 +573,22 @@ namespace StoreFixer
                 LogColored($"Failed to create service backup: {ex.Message}", MessageType.Error);
                 LogColored("Continuing without backup - ensure manual restoration capability", MessageType.Warning);
             }
+        }
+
+        private static ServiceStartMode GetServiceStartupMode(string serviceName, ServiceStartMode fallbackMode)
+        {
+            if (isSafeMode)
+            {
+                object savedStartupMode = RegistryHelper.GetValue(@"HKLM\SOFTWARE\AtlasOS\Temp", serviceName);
+                if (savedStartupMode is string savedStartupModeString && Enum.TryParse(savedStartupModeString, true, out ServiceStartMode parsedStartupMode))
+                {
+                    Console.WriteLine(savedStartupMode.ToString());
+                    Console.WriteLine(parsedStartupMode);
+                    return parsedStartupMode;
+                }
+            }
+
+            return fallbackMode;
         }
 
         /// <summary>

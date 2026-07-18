@@ -117,6 +117,17 @@ namespace StoreFixer.Utils
                 process.WaitForExit();
             }
         }
+        
+        public static void RunCommand(string fileName, string arguments)
+        {
+            var process = new Process();
+            process.StartInfo.FileName = fileName;
+            process.StartInfo.Arguments = arguments;
+            process.StartInfo.UseShellExecute = true;
+            process.StartInfo.Verb = "runas";
+            process.Start();
+            process.WaitForExit();
+        }
 
 }
 }
