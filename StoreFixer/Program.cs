@@ -323,9 +323,8 @@ namespace StoreFixer
             try
             {
                 WindowsIdentity identity = WindowsIdentity.GetCurrent();
-                string userName = identity.Name;
 
-                if (userName.Equals("NT AUTHORITY\\SYSTEM", StringComparison.OrdinalIgnoreCase))
+                if (identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid) == true)
                 {
                     return true;
                 }
